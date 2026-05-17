@@ -40,7 +40,7 @@ RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results"
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 MIN_CANDLES = 140
-MAX_WORKERS = 8
+MAX_WORKERS = 4
 
 
 def _detect_pattern(df_daily, df_weekly):
@@ -155,11 +155,11 @@ def _fetch_price_parallel(symbols, workers=MAX_WORKERS):
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = {ex.submit(fn, s.replace(".NS", ""), 365): s for s in symbols}
         done = 0
-        for f in as_completed(futures):
+        for f in as_completed(futures, timeout=600):
             done += 1
             sym = futures[f]
             try:
-                df = f.result()
+                df = f.result(timeout=30)
                 if df is not None and len(df) >= MIN_CANDLES:
                     results[sym] = df
             except Exception:

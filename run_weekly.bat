@@ -11,7 +11,7 @@ echo  Expected time: 60-90 minutes.
 echo.
 echo  Starting scan...
 echo.
-python scanner.py --top 30 --min-score 50 --workers 8
+python scanner.py --top 30 --min-score 50 --workers 4
 echo.
 echo  Sending Telegram notification...
 python telegram_notify.py --top 15
