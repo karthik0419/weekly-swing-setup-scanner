@@ -1,13 +1,13 @@
 """
-Descending Channel Breakout Detection
+Channel Breakout Detection (Weekly Scanner Edition)
 
-Logic:
-1. Identify a descending channel — lower highs + lower lows in parallel
-2. Price breaks above the upper channel line (resistance trendline)
-3. Breakout confirmed with volume surge
-4. Entry on breakout, target = channel height projected upward
+Two detectors:
+1. detect_descending_channel — finds long downtrend channels that broke upward
+   (like HIKAL: 1-year falling channel, just broke above upper line)
+2. detect_ascending_channel  — finds uptrending channels that broke even higher
+   (continuation breakouts in already-trending stocks)
 
-Like SHAKTIPUMP — long downtrend in channel, then breaks above upper line.
+Both use lookback=200 bars (~10 months) for catching long-term channel patterns.
 """
 
 import numpy as np
@@ -19,7 +19,24 @@ def _fit_trendline(indices, values):
     return coeffs[0], coeffs[1]
 
 
-def detect_descending_channel(df, lookback=60, min_touches=3):
+def _find_swings(highs, lows, n, window=4):
+    swing_high_idx, swing_high_val = [], []
+    swing_low_idx, swing_low_val = [], []
+    for i in range(window, n - window):
+        if highs[i] == max(highs[i - window: i + window + 1]):
+            swing_high_idx.append(i)
+            swing_high_val.append(highs[i])
+        if lows[i] == min(lows[i - window: i + window + 1]):
+            swing_low_idx.append(i)
+            swing_low_val.append(lows[i])
+    return swing_high_idx, swing_high_val, swing_low_idx, swing_low_val
+
+
+def _channel_breakout(df, lookback, direction, min_touches=3):
+    """
+    Core detector for both descending and ascending channels.
+    direction: 'desc' for falling channel, 'asc' for rising channel.
+    """
     if df is None or len(df) < lookback + 10:
         return None
 
@@ -35,77 +52,73 @@ def detect_descending_channel(df, lookback=60, min_touches=3):
         avg_vol = float(np.mean(vols[-20:]))
         cur_vol = float(vols[-1])
 
-        # Find swing highs and lows
-        window = 4
-        swing_high_idx, swing_high_val = [], []
-        swing_low_idx,  swing_low_val  = [], []
+        sh_idx, sh_val, sl_idx, sl_val = _find_swings(highs, lows, n)
 
-        for i in range(window, n - window):
-            if highs[i] == max(highs[i - window: i + window + 1]):
-                swing_high_idx.append(i)
-                swing_high_val.append(highs[i])
-            if lows[i] == min(lows[i - window: i + window + 1]):
-                swing_low_idx.append(i)
-                swing_low_val.append(lows[i])
-
-        if len(swing_high_idx) < min_touches or len(swing_low_idx) < min_touches:
+        if len(sh_idx) < min_touches or len(sl_idx) < min_touches:
             return None
 
-        # Fit trendlines to swing highs and lows
-        h_slope, h_intercept = _fit_trendline(swing_high_idx, swing_high_val)
-        l_slope, l_intercept = _fit_trendline(swing_low_idx,  swing_low_val)
+        h_slope, h_int = _fit_trendline(sh_idx, sh_val)
+        l_slope, l_int = _fit_trendline(sl_idx, sl_val)
 
-        # Must be descending channel — both slopes negative
-        if h_slope >= -0.05 or l_slope >= -0.05:
-            return None
+        if direction == "desc":
+            if h_slope >= -0.05 or l_slope >= -0.05:
+                return None
+            pattern_name = "Channel Breakout (Descending)"
+        else:
+            if h_slope <= 0.05 or l_slope <= 0.05:
+                return None
+            pattern_name = "Channel Breakout (Ascending)"
 
-        # Slopes must be roughly parallel (within 60% of each other)
         if abs(h_slope) == 0:
             return None
         slope_ratio = abs(l_slope) / abs(h_slope)
         if not (0.4 <= slope_ratio <= 2.5):
             return None
 
-        # Upper channel line value at current bar
-        upper_line = h_slope * (n - 1) + h_intercept
-        lower_line = l_slope * (n - 1) + l_intercept
+        upper_line = h_slope * (n - 1) + h_int
+        lower_line = l_slope * (n - 1) + l_int
         channel_height = upper_line - lower_line
 
         if channel_height <= 0:
             return None
 
-        # Breakout: current price must be ABOVE the upper channel line
         if cmp <= upper_line:
             return None
-        if cmp > upper_line * 1.08:
-            return None  # ran too far above already
+        if cmp > upper_line * 1.10:
+            return None
 
-        # Volume confirmation on breakout
         breakout_vol_ok = cur_vol > avg_vol * 1.3
 
-        # Stop loss = back inside channel (upper line)
-        stop_loss = upper_line * 0.98
-        risk_amt  = cmp - stop_loss
-
+        stop_loss = upper_line * 0.97
+        risk_amt = cmp - stop_loss
         if risk_amt <= 0:
             return None
 
-        # Target = channel height projected upward from breakout
         target = upper_line + channel_height
-        rr     = round((target - cmp) / risk_amt, 2)
-
+        rr = round((target - cmp) / risk_amt, 2)
         if rr < 1.0:
             return None
 
         return {
-            "pattern":   "Channel Breakout",
+            "pattern":   pattern_name,
             "cmp":       cmp,
             "breakout":  round(upper_line, 2),
             "stop_loss": round(stop_loss, 2),
             "target":    round(target, 2),
             "volume":    breakout_vol_ok,
-            "status":    "BREAKOUT" if cmp > upper_line else "NEAR",
+            "status":    "BREAKOUT",
+            "channel_lookback_bars": lookback,
         }
 
     except Exception:
         return None
+
+
+def detect_descending_channel(df, lookback=200, min_touches=3):
+    """Catches long-term descending channels (10+ months)."""
+    return _channel_breakout(df, lookback, "desc", min_touches)
+
+
+def detect_ascending_channel(df, lookback=200, min_touches=3):
+    """Catches stocks already trending up that break to higher highs."""
+    return _channel_breakout(df, lookback, "asc", min_touches)

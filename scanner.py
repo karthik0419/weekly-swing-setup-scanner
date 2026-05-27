@@ -27,7 +27,7 @@ from data.loader import _fetch_nse, _resample_weekly
 from patterns.cup_handle import detect_cup_handle, detect_cup_handle_weekly
 from patterns.breakout import detect_breakout
 from patterns.break_retest import detect_break_retest
-from patterns.channel import detect_descending_channel
+from patterns.channel import detect_descending_channel, detect_ascending_channel
 from patterns.triangle import detect_triangle
 from patterns.darvas_box import detect_darvas_box
 from patterns.flags import detect_flag_pennant
@@ -50,6 +50,7 @@ def _detect_pattern(df_daily, df_weekly):
         detect_cup_handle(df_daily) or
         detect_double_bottom(df_daily) or
         detect_descending_channel(df_daily) or
+        detect_ascending_channel(df_daily) or
         detect_triangle(df_daily) or
         detect_darvas_box(df_daily) or
         detect_flag_pennant(df_daily) or
@@ -100,7 +101,9 @@ def _score(result):
         "Bullish Flag":          12,
         "Break & Retest":        10,
         "S&R Breakout":          10,
-        "Channel Breakout":       8,
+        "Channel Breakout (Descending)": 22,
+        "Channel Breakout (Ascending)":  18,
+        "Channel Breakout":              10,
     }
     score += pat_bonus.get(pat, 5)
 
